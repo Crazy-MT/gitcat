@@ -29,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Cat Ninth",
     "targets": "all",
     "createUpdaterArtifacts": true,
     "icon": [
