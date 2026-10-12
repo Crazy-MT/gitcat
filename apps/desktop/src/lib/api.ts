@@ -34,6 +34,8 @@ import type {
   RepositorySnapshot,
   ResetMode,
   StashEntry,
+  SubmoduleInfo,
+  SubmoduleSyncAction,
 } from "./types";
 
 export interface GitCatCommands {
@@ -57,6 +59,12 @@ export interface GitCatCommands {
   /** Open the repository's worktree root, or a folder inside it, in the OS file explorer. */
   openRepositoryFolder(repositoryId: RepositoryId, path?: string): Promise<void>;
   snapshot(repositoryId: RepositoryId): Promise<RepositorySnapshot>;
+  listSubmodules(repositoryId: RepositoryId): Promise<SubmoduleInfo[]>;
+  addSubmodule(repositoryId: RepositoryId, url: string, path: string): Promise<MutationResult>;
+  setSubmoduleUrl(repositoryId: RepositoryId, path: string, url: string): Promise<MutationResult>;
+  updateSubmodule(repositoryId: RepositoryId, path: string): Promise<MutationResult>;
+  removeSubmodule(repositoryId: RepositoryId, path: string, confirmed: boolean): Promise<MutationResult>;
+  syncSubmodule(repositoryId: RepositoryId, path: string, action: SubmoduleSyncAction): Promise<MutationResult>;
   history(repositoryId: RepositoryId, query: HistoryQuery): Promise<HistoryPage>;
   searchCommits(
     repositoryId: RepositoryId,
@@ -266,6 +274,12 @@ export function createTauriGitCatApi(): GitCatApi {
       invokeTauri("repository_reveal", { repositoryId, path: path ?? null }),
     snapshot: (repositoryId) =>
       invokeTauri("repository_snapshot", { repositoryId }),
+    listSubmodules: (repositoryId) => invokeTauri("list_submodules", { repositoryId }),
+    addSubmodule: (repositoryId, url, path) => invokeTauri("add_submodule", { repositoryId, url, path }),
+    setSubmoduleUrl: (repositoryId, path, url) => invokeTauri("set_submodule_url", { repositoryId, path, url }),
+    updateSubmodule: (repositoryId, path) => invokeTauri("update_submodule", { repositoryId, path }),
+    removeSubmodule: (repositoryId, path, confirmed) => invokeTauri("remove_submodule", { repositoryId, path, confirmed }),
+    syncSubmodule: (repositoryId, path, action) => invokeTauri("sync_submodule", { repositoryId, path, action }),
     history: (repositoryId, query) =>
       invokeTauri("history_page", { repositoryId, query }),
     searchCommits: (repositoryId, query) =>

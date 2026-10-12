@@ -2,6 +2,7 @@ import type { GitCatApi } from "./api";
 import packageMetadata from "../../package.json";
 import { cloneDefaultThemes, DEFAULT_THEME_ID } from "../app/themePresets";
 import { DEFAULT_KEYBINDS } from "./keybinds";
+import { createDemoSubmodules, demoRepositoryKey, demoSubmodulePath } from "./demoSubmodules";
 import type {
   AppMetadata,
   ApiError,
@@ -43,6 +44,8 @@ import type {
   ResetMode,
   StashEntry,
   StatusEntry,
+  SubmoduleInfo,
+  SubmoduleSyncAction,
 } from "./types";
 
 const DEMO_REPOSITORY_ID = "7e43a7bc-d48b-4f8f-92ab-43a41676ce7e";
@@ -377,6 +380,10 @@ function repositoryName(path: string): string {
 
 class DemoGitCatApi implements GitCatApi {
   readonly runtime = "browser" as const;
+  private readonly repositoryId: RepositoryId;
+  private readonly findRepository?: (path: string) => DemoGitCatApi | undefined;
+  private submodules: SubmoduleInfo[];
+  private readonly committedSubmoduleOids = new Map<string, string | null>();
   private isOpen = true;
   private generationNumber = 1;
   private repositoryInfo: RepositoryInfo = {
@@ -500,6 +507,58 @@ class DemoGitCatApi implements GitCatApi {
     },
   };
 
+  constructor(
+    repositoryId = DEMO_REPOSITORY_ID,
+    submodule?: SubmoduleInfo,
+    findRepository?: (path: string) => DemoGitCatApi | undefined,
+  ) {
+    this.repositoryId = repositoryId;
+    this.findRepository = findRepository;
+    this.submodules = submodule ? [] : createDemoSubmodules(this.commits);
+    for (const item of this.submodules) this.committedSubmoduleOids.set(item.path, item.recorded_oid);
+    if (submodule) {
+      this.repositoryInfo = this.infoForPath(submodule.absolute_path);
+      this.snapshotValue.status.entries = [];
+      this.snapshotValue.status.clean = true;
+      this.snapshotValue.status.ahead = 0;
+      this.snapshotValue.status.behind = 0;
+      this.snapshotValue.status.stash_count = 0;
+      this.stashes = [];
+      const oid = submodule.head_oid ?? submodule.recorded_oid ?? oids[0];
+      const branch = submodule.branch;
+      this.snapshotValue.head = branch ? { kind: "branch", name: branch, oid } : { kind: "detached", oid };
+      this.snapshotValue.local_branches = [{
+        name: branch ?? "main",
+        full_name: `refs/heads/${branch ?? "main"}`,
+        oid,
+        kind: "local_branch",
+        is_head: Boolean(branch),
+        upstream: `origin/${branch ?? "main"}`,
+        ahead: 0,
+        behind: 0,
+      }];
+      this.snapshotValue.remote_branches = [{
+        name: `origin/${branch ?? "main"}`,
+        full_name: `refs/remotes/origin/${branch ?? "main"}`,
+        oid,
+        kind: "remote_branch",
+        is_head: false,
+      }];
+      this.snapshotValue.tags = [];
+      this.snapshotValue.remotes = [{ name: "origin", fetch_url: submodule.url, push_url: submodule.url, forge: "github" }];
+      // Show the selected submodule revision at the tip of its own history.
+      const index = this.commits.findIndex((commit) => commit.oid === oid);
+      if (index >= 0) this.commits = this.commits.slice(index);
+      for (const commit of this.commits) {
+        commit.decorations = commit.oid === oid && branch ? [localLabel(branch, true)] : [];
+      }
+    } else {
+      this.snapshotValue.status.entries.push({
+        path: "packages/shared", worktree: "modified", conflicted: false, submodule: true,
+      });
+    }
+  }
+
   async appMetadata(): Promise<AppMetadata> {
     await delay();
     return { version: packageMetadata.version, commit: "browser-demo" };
@@ -514,7 +573,7 @@ class DemoGitCatApi implements GitCatApi {
     await delay();
     this.isOpen = true;
     this.repositoryInfo = this.infoForPath(path);
-    return { repository_id: DEMO_REPOSITORY_ID, info: clone(this.repositoryInfo) };
+    return { repository_id: this.repositoryId, info: clone(this.repositoryInfo) };
   }
 
   async launchRepositoryPath(): Promise<string | null> {
@@ -530,7 +589,7 @@ class DemoGitCatApi implements GitCatApi {
     await delay(80);
     this.isOpen = true;
     this.repositoryInfo = this.infoForPath(options.destination);
-    return { repository_id: DEMO_REPOSITORY_ID, info: clone(this.repositoryInfo) };
+    return { repository_id: this.repositoryId, info: clone(this.repositoryInfo) };
   }
 
   async closeRepository(repositoryId: RepositoryId): Promise<void> {
@@ -551,9 +610,112 @@ class DemoGitCatApi implements GitCatApi {
     // The browser demo has no filesystem to reveal.
   }
 
+  /** Used by the demo router when a submodule is opened in its own tab. */
+  submoduleForRoot(path: string): SubmoduleInfo | undefined {
+    return this.currentSubmodules().find((submodule) => demoRepositoryKey(submodule.absolute_path) === demoRepositoryKey(path));
+  }
+
+  async listSubmodules(repositoryId: RepositoryId): Promise<SubmoduleInfo[]> {
+    await delay();
+    this.ensureRepository(repositoryId);
+    return clone(this.currentSubmodules());
+  }
+
+  async addSubmodule(repositoryId: RepositoryId, url: string, path: string): Promise<MutationResult> {
+    await delay(120);
+    this.ensureRepository(repositoryId);
+    const normalized = path.trim().replace(/\\/g, "/");
+    if (!normalized || normalized.startsWith("/") || normalized.includes(":")
+      || normalized.split("/").some((part) => !part || part === "." || part === ".." || part.toLowerCase() === ".git")) {
+      fail("invalid_path", "Choose a relative folder inside this repository");
+    }
+    if (this.submodules.some((submodule) => {
+      const existing = submodule.path.toLowerCase();
+      const candidate = normalized.toLowerCase();
+      return existing === candidate || existing.startsWith(`${candidate}/`) || candidate.startsWith(`${existing}/`);
+    })) fail("invalid_path", "A submodule already occupies this folder");
+    this.validateSubmoduleUrl(url);
+    const commit = this.commits[0];
+    this.submodules.push({
+      name: normalized, path: normalized, url: url.trim(), absolute_path: demoSubmodulePath(this.repositoryInfo.root, normalized),
+      initialized: true, head_oid: commit.oid, recorded_oid: commit.oid,
+      head_summary: commit.subject, head_committed_at: commit.committed_at.seconds,
+      branch: "main", dirty: false, conflicted: false, head_matches_recorded: true,
+    });
+    this.stageSubmoduleMetadata();
+    this.snapshotValue.status.entries.push({ path: normalized, index: "added", conflicted: false, submodule: true });
+    return this.mutation();
+  }
+
+  async setSubmoduleUrl(repositoryId: RepositoryId, path: string, url: string): Promise<MutationResult> {
+    await delay();
+    this.ensureRepository(repositoryId);
+    const submodule = this.requireSubmodule(path);
+    this.validateSubmoduleUrl(url);
+    submodule.url = url.trim();
+    const child = this.findRepository?.(demoSubmodulePath(this.repositoryInfo.root, path));
+    if (child) child.snapshotValue.remotes = [{ name: "origin", fetch_url: submodule.url, push_url: submodule.url, forge: "unknown" }];
+    this.stageSubmoduleMetadata();
+    return this.mutation();
+  }
+
+  async updateSubmodule(repositoryId: RepositoryId, path: string): Promise<MutationResult> {
+    await delay(140);
+    this.ensureRepository(repositoryId);
+    const submodule = this.requireSubmodule(path);
+    const current = this.currentSubmodules().find((item) => item.path === path)!;
+    if (current.dirty || current.conflicted) fail("invalid_request", "Commit or stash the submodule changes before updating");
+    const child = this.findRepository?.(current.absolute_path);
+    // Commits created in a child tab are local work; a demo update must not
+    // silently replace them with the sample remote history.
+    if (current.head_oid && !initialDetails.has(current.head_oid)) {
+      fail("invalid_request", "Submodule has local commits; open it to review before updating");
+    }
+    const oid = current.initialized ? oids[0] : current.recorded_oid ?? oids[0];
+    const commit = initialCommits.find((item) => item.oid === oid)!;
+    submodule.initialized = true;
+    submodule.head_oid = oid;
+    submodule.head_summary = commit.subject;
+    submodule.head_committed_at = commit.committed_at.seconds;
+    submodule.head_matches_recorded = oid === submodule.recorded_oid;
+    if (child) child.receiveSubmoduleUpdate(oid);
+    this.refreshSubmoduleStatus();
+    const result = this.mutation();
+    if (!current.initialized) result.notice = "Initialized at the commit recorded by the parent repository.";
+    return result;
+  }
+
+  async removeSubmodule(repositoryId: RepositoryId, path: string, confirmed: boolean): Promise<MutationResult> {
+    await delay();
+    this.ensureRepository(repositoryId);
+    this.requireSubmodule(path);
+    if (!confirmed) fail("invalid_request", "Confirm removal before deleting a submodule");
+    const current = this.currentSubmodules().find((item) => item.path === path)!;
+    if (current.dirty || current.conflicted) fail("invalid_request", "Commit or stash the submodule changes before removing it");
+    this.submodules = this.submodules.filter((submodule) => submodule.path !== path);
+    this.snapshotValue.status.entries = this.snapshotValue.status.entries.filter((entry) => entry.path !== path);
+    this.snapshotValue.status.entries.push({ path, index: "deleted", conflicted: false, submodule: true });
+    this.stageSubmoduleMetadata();
+    return this.mutation();
+  }
+
+  async syncSubmodule(repositoryId: RepositoryId, path: string, action: SubmoduleSyncAction): Promise<MutationResult> {
+    if (action === "pull") return this.updateSubmodule(repositoryId, path);
+    await delay(110);
+    this.ensureRepository(repositoryId);
+    this.requireSubmodule(path);
+    const current = this.currentSubmodules().find((item) => item.path === path)!;
+    if (!current.initialized) fail("invalid_request", "Initialize this submodule before pushing");
+    if (!current.branch) fail("invalid_request", "Submodule has a detached HEAD; check out a branch before pushing");
+    const child = this.findRepository?.(current.absolute_path);
+    if (child) child.snapshotValue.status.ahead = 0;
+    return this.mutation();
+  }
+
   async snapshot(repositoryId: RepositoryId): Promise<RepositorySnapshot> {
     await delay();
     this.ensureRepository(repositoryId);
+    this.refreshSubmoduleStatus();
     return clone(this.snapshotValue);
   }
 
@@ -658,6 +820,8 @@ class DemoGitCatApi implements GitCatApi {
       if (entry) {
         entry.index = entry.worktree === "untracked" ? "added" : (entry.worktree ?? entry.index ?? "modified");
         delete entry.worktree;
+        const submodule = this.submodules.find((item) => item.path === path);
+        if (submodule) submodule.recorded_oid = this.currentSubmodules().find((item) => item.path === path)!.head_oid;
       }
     }
     return this.mutation();
@@ -671,6 +835,8 @@ class DemoGitCatApi implements GitCatApi {
       if (entry?.index) {
         entry.worktree = entry.index === "added" ? "untracked" : entry.index;
         delete entry.index;
+        const submodule = this.submodules.find((item) => item.path === path);
+        if (submodule) submodule.recorded_oid = this.committedSubmoduleOids.get(path) ?? null;
       }
     }
     return this.mutation();
@@ -863,6 +1029,12 @@ class DemoGitCatApi implements GitCatApi {
       files: clone(changedFiles),
     });
     this.setHeadOid(oid);
+    for (const entry of this.snapshotValue.status.entries) {
+      if (!entry.submodule || !entry.index) continue;
+      const submodule = this.submodules.find((item) => item.path === entry.path);
+      if (submodule) this.committedSubmoduleOids.set(entry.path, submodule.recorded_oid);
+      else this.committedSubmoduleOids.delete(entry.path);
+    }
     this.snapshotValue.status.entries = [];
     this.snapshotValue.status.clean = true;
     return this.mutation(before, oid);
@@ -1310,8 +1482,78 @@ class DemoGitCatApi implements GitCatApi {
     };
   }
 
+  private currentSubmodules(): SubmoduleInfo[] {
+    return this.submodules.map((submodule) => {
+      const absolute_path = demoSubmodulePath(this.repositoryInfo.root, submodule.path);
+      const child = this.findRepository?.(absolute_path);
+      if (!child) return {
+        ...submodule,
+        absolute_path,
+        head_matches_recorded: submodule.initialized && submodule.head_oid === submodule.recorded_oid,
+      };
+      const head_oid = child.headOid();
+      const commit = head_oid ? child.details.get(head_oid) : undefined;
+      return {
+        ...submodule,
+        absolute_path,
+        head_oid,
+        branch: child.currentBranchName(),
+        head_summary: commit?.subject ?? null,
+        head_committed_at: commit?.committed_at.seconds ?? null,
+        dirty: child.snapshotValue.status.entries.length > 0,
+        conflicted: child.snapshotValue.status.entries.some((entry) => entry.conflicted),
+        head_matches_recorded: head_oid === submodule.recorded_oid,
+      };
+    });
+  }
+
+  private requireSubmodule(path: string): SubmoduleInfo {
+    const submodule = this.submodules.find((item) => item.path === path);
+    if (!submodule) fail("invalid_path", `Unknown submodule: ${path}`);
+    return submodule;
+  }
+
+  private validateSubmoduleUrl(url: string): void {
+    if (!url.trim() || url.trim().startsWith("-") || /[\r\n\0]/.test(url)) {
+      fail("invalid_request", "Enter a repository URL");
+    }
+  }
+
+  private stageSubmoduleMetadata(): void {
+    const existing = this.snapshotValue.status.entries.find((entry) => entry.path === ".gitmodules");
+    if (existing) existing.index = "modified";
+    else this.snapshotValue.status.entries.push({ path: ".gitmodules", index: "modified", conflicted: false, submodule: false });
+  }
+
+  private refreshSubmoduleStatus(): void {
+    for (const submodule of this.currentSubmodules()) {
+      const entry = this.snapshotValue.status.entries.find((item) => item.path === submodule.path);
+      if (submodule.initialized && (!submodule.head_matches_recorded || submodule.dirty)) {
+        if (entry) entry.worktree = "modified";
+        else this.snapshotValue.status.entries.push({ path: submodule.path, worktree: "modified", conflicted: submodule.conflicted, submodule: true });
+      } else if (entry) {
+        delete entry.worktree;
+        if (!entry.index) this.snapshotValue.status.entries = this.snapshotValue.status.entries.filter((item) => item !== entry);
+      }
+    }
+    this.snapshotValue.status.clean = this.snapshotValue.status.entries.length === 0;
+  }
+
+  private receiveSubmoduleUpdate(oid: string): void {
+    this.setHeadOid(oid);
+    const index = initialCommits.findIndex((commit) => commit.oid === oid);
+    this.commits = clone(initialCommits.slice(Math.max(index, 0)));
+    const branch = this.currentBranchName();
+    for (const commit of this.commits) {
+      commit.decorations = commit.oid === oid && branch ? [localLabel(branch, true)] : [];
+    }
+    for (const remote of this.snapshotValue.remote_branches) remote.oid = oid;
+    this.snapshotValue.status.behind = 0;
+    this.mutation();
+  }
+
   private ensureRepository(repositoryId: RepositoryId): void {
-    if (!this.isOpen || repositoryId !== DEMO_REPOSITORY_ID) {
+    if (!this.isOpen || repositoryId !== this.repositoryId) {
       fail("repository_closed", "Demo repository is not open");
     }
   }
@@ -1388,7 +1630,49 @@ class DemoGitCatApi implements GitCatApi {
 }
 
 export function createDemoGitCatApi(): GitCatApi {
-  return new DemoGitCatApi();
+  const byRoot = new Map<string, DemoGitCatApi>();
+  const byId = new Map<RepositoryId, DemoGitCatApi>();
+  const findRepository = (path: string) => byRoot.get(demoRepositoryKey(path));
+  const primary = new DemoGitCatApi(DEMO_REPOSITORY_ID, undefined, findRepository);
+  byId.set(DEMO_REPOSITORY_ID, primary);
+  let primaryBound = false;
+
+  const repositoryForOpen = (path: string): DemoGitCatApi => {
+    const key = demoRepositoryKey(path || "C:\\Projects\\GitCat");
+    const existing = byRoot.get(key);
+    if (existing) return existing;
+    const submodule = Array.from(byId.values())
+      .map((repository) => repository.submoduleForRoot(path))
+      .find((candidate) => candidate !== undefined);
+    if (submodule && !submodule.initialized) fail("invalid_request", "Initialize this submodule before opening it");
+    const id = !primaryBound && !submodule ? DEMO_REPOSITORY_ID : crypto.randomUUID();
+    const repository = id === DEMO_REPOSITORY_ID
+      ? primary
+      : new DemoGitCatApi(id, submodule, findRepository);
+    if (repository === primary) primaryBound = true;
+    // Register before awaiting the open, because workspace restoration opens
+    // several saved tabs concurrently.
+    byRoot.set(key, repository);
+    byId.set(id, repository);
+    return repository;
+  };
+
+  // Keep the existing per-repository demo implementation self-contained. Only
+  // lifecycle methods choose a repository; all repository commands already
+  // carry their handle as the first argument and are routed by that handle.
+  return new Proxy(primary, {
+    get(target, property: string | symbol) {
+      if (property === "openRepository") return async (path: string) => repositoryForOpen(path).openRepository(path);
+      if (property === "initRepository") return async (path: string, branch: string) => repositoryForOpen(path).initRepository(path, branch);
+      if (property === "cloneRepository") return async (options: CloneOptions) => repositoryForOpen(options.destination).cloneRepository(options);
+      const value: unknown = Reflect.get(target, property);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        const repository = typeof args[0] === "string" ? byId.get(args[0]) ?? target : target;
+        return Reflect.apply(Reflect.get(repository, property), repository, args);
+      };
+    },
+  });
 }
 
 export { DEMO_REPOSITORY_ID };

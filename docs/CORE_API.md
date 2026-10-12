@@ -22,6 +22,7 @@ Bare repositories are not supported by this worktree-oriented API; the response 
 - `conflict_preflight`: read-only merge prediction between committed HEAD and an explicitly resolved target. It returns `clean`, `conflicting`, or `unavailable` and never changes the index, worktree, refs, or HEAD.
 - `conflict_details`: bounded Base/stage-2/stage-3/current-result content plus exact index and worktree identities for guarded resolution.
 - `stash_list`: stable stash index/OID/message entries.
+- `list_submodules`: direct submodule paths, URLs, initialization and dirty/conflict state, current HEAD and commit date (Unix seconds), and the gitlink recorded in the parent index.
 
 History returns DAG/lane data, not pixels or colors. The UI chooses colors by lane number from the configured `graph_palette`.
 
@@ -34,6 +35,15 @@ History returns DAG/lane data, not pixels or colors. The UI chooses colors by la
 - merge/rebase/cherry-pick/revert continue or abort;
 - resolve a conflict from index stage 2/3, stage the reviewed working copy, delete it, save an edited text result, or reuse exact repository-local `rerere` records;
 - stash push/apply/pop/drop.
+- submodule add, set URL, initialize/update, remove, and per-submodule pull/push.
+
+## Submodules
+
+Tauri exposes `list_submodules`, `add_submodule`, `set_submodule_url`, `update_submodule`, `remove_submodule`, and `sync_submodule`. Mutations return `MutationResult`. `remove_submodule` requires explicit confirmation and refuses local changes and ignored data; Git metadata remains recoverable. Add/remove stage Git's registration changes; URL edits and updated child revisions still need review in the parent.
+
+The desktop orchestrates bulk operations sequentially with individual results. Optional parent pull runs first, followed by a fresh submodule listing. Optional parent push runs only after all children succeed. Pull is fast-forward only, detached updates preserve local commits, and detached push requires a branch. No bulk operation creates commits or force-pushes. Scope is the parent's direct submodules, plus the parent when selected.
+
+Bulk parent operations set `PullOptions.skip_submodules` or `PushOptions.skip_submodules` to override recursive Git configuration. Both fields default to `false` for existing callers. Child operations also explicitly disable implicit recursion. Initialization requires a missing or empty checkout folder, including when cached Git metadata already exists.
 
 ## Pull behavior
 

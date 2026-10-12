@@ -17,6 +17,59 @@ pub trait GitBackend: Send + Sync {
     ) -> ApiResult<RepositoryInfo>;
 
     async fn snapshot(&self, path: &Path) -> ApiResult<RepositorySnapshot>;
+    async fn list_submodules(&self, _path: &Path) -> ApiResult<Vec<SubmoduleInfo>> {
+        Ok(Vec::new())
+    }
+    async fn add_submodule(
+        &self,
+        _path: &Path,
+        _url: &str,
+        _relative: &str,
+    ) -> ApiResult<MutationResult> {
+        Err(ApiError::new(
+            ErrorCode::UnsupportedOperation,
+            "Submodules are unavailable",
+        ))
+    }
+    async fn set_submodule_url(
+        &self,
+        _path: &Path,
+        _relative: &str,
+        _url: &str,
+    ) -> ApiResult<MutationResult> {
+        Err(ApiError::new(
+            ErrorCode::UnsupportedOperation,
+            "Submodules are unavailable",
+        ))
+    }
+    async fn update_submodule(&self, _path: &Path, _relative: &str) -> ApiResult<MutationResult> {
+        Err(ApiError::new(
+            ErrorCode::UnsupportedOperation,
+            "Submodules are unavailable",
+        ))
+    }
+    async fn remove_submodule(
+        &self,
+        _path: &Path,
+        _relative: &str,
+        _confirmed: bool,
+    ) -> ApiResult<MutationResult> {
+        Err(ApiError::new(
+            ErrorCode::UnsupportedOperation,
+            "Submodules are unavailable",
+        ))
+    }
+    async fn sync_submodule(
+        &self,
+        _path: &Path,
+        _relative: &str,
+        _action: SubmoduleSyncAction,
+    ) -> ApiResult<MutationResult> {
+        Err(ApiError::new(
+            ErrorCode::UnsupportedOperation,
+            "Submodules are unavailable",
+        ))
+    }
     async fn history(&self, path: &Path, query: &HistoryQuery) -> ApiResult<HistoryPage>;
     async fn search_commits(
         &self,

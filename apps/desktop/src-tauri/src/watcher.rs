@@ -49,7 +49,7 @@ impl RepositoryWatchState {
         &self,
         app: AppHandle,
         repository_id: RepositoryId,
-        root: PathBuf,
+        paths: Vec<PathBuf>,
     ) -> notify::Result<()> {
         // Already watching this repository: nothing to do.
         {
@@ -73,7 +73,9 @@ impl RepositoryWatchState {
                     }
                 }
             })?;
-        watcher.watch(&root, RecursiveMode::Recursive)?;
+        for path in paths {
+            watcher.watch(&path, RecursiveMode::Recursive)?;
+        }
 
         let worker_repository_id = repository_id.clone();
         std::thread::spawn(move || {

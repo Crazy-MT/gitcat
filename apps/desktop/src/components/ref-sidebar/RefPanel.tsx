@@ -1,12 +1,13 @@
 import { useState } from "react";
 
 import type { BranchInfo, PullRequestInfo, RefLabel } from "../../lib/types";
+import type { SubmoduleSidebarProps } from "../submodules/SubmoduleSection";
 import { RefRail } from "./RefRail";
 import { RefSidebar } from "./RefSidebar";
 import type { BranchContextMenuRequest } from "./RefSidebar";
 import type { RefSectionKey, RefSectionState } from "./sections";
 
-interface RefPanelProps {
+interface RefPanelProps extends SubmoduleSidebarProps {
   collapsed: boolean;
   localBranches: BranchInfo[];
   remoteBranches: BranchInfo[];
@@ -26,7 +27,7 @@ interface RefPanelProps {
 // Owns the expanded/collapsed section state so the rail can expand the panel
 // straight into the section whose icon was clicked.
 export function RefPanel({ collapsed, onExpand, toggleKeybind, ...sidebar }: RefPanelProps) {
-  const [sections, setSections] = useState<RefSectionState>({ local: true, remote: true, tags: false });
+  const [sections, setSections] = useState<RefSectionState>({ local: true, remote: true, tags: false, submodules: true });
 
   if (collapsed) {
     return (
@@ -39,6 +40,7 @@ export function RefPanel({ collapsed, onExpand, toggleKeybind, ...sidebar }: Ref
         }}
         remoteCount={sidebar.remoteBranches.length}
         tagCount={sidebar.tags.length}
+        submoduleCount={sidebar.submodules?.length ?? 0}
       />
     );
   }

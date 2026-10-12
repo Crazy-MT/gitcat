@@ -331,6 +331,7 @@ async fn a_push_with_nothing_to_send_never_contacts_the_remote() {
         .push(
             &repository.id,
             &PushOptions {
+                skip_submodules: false,
                 remote: None,
                 branch: None,
                 set_upstream: false,
@@ -374,6 +375,7 @@ async fn a_push_with_something_to_send_still_runs() {
         .push(
             &repository.id,
             &PushOptions {
+                skip_submodules: false,
                 remote: None,
                 branch: None,
                 set_upstream: false,
@@ -406,6 +408,7 @@ async fn push(repository: &TestRepository, force: PushForce) -> Result<MutationR
         .push(
             &repository.id,
             &PushOptions {
+                skip_submodules: false,
                 remote: None,
                 branch: None,
                 set_upstream: false,

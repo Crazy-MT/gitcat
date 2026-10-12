@@ -9,6 +9,8 @@ import type {
 import { cx } from "../../lib";
 import type { BranchInfo, PullRequestInfo, RefLabel } from "../../lib/types";
 import { IconButton, Input, SidePanel } from "../ui";
+import { SubmoduleSection } from "../submodules/SubmoduleSection";
+import type { SubmoduleSidebarProps } from "../submodules/SubmoduleSection";
 import type { BranchTreeNode } from "./branchTree";
 import { branchIndent, buildBranchTree } from "./branchTree";
 import {
@@ -35,7 +37,7 @@ export interface BranchContextMenuRequest {
   clientY: number;
 }
 
-interface RefSidebarProps {
+interface RefSidebarProps extends SubmoduleSidebarProps {
   localBranches: BranchInfo[];
   remoteBranches: BranchInfo[];
   remoteIconUrls?: ReadonlyMap<string, string>;
@@ -78,6 +80,7 @@ export function RefSidebar({
   onCheckoutRemote,
   onBranchContextMenu,
   onOpenPullRequest,
+  ...submoduleProps
 }: RefSidebarProps) {
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLocaleLowerCase();
@@ -201,10 +204,10 @@ export function RefSidebar({
         <div className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-[5px] border border-border bg-background px-2.25 text-muted focus-within:border-accent focus-within:text-accent">
           <Search size={14} />
           <Input
-            aria-label="Filter branches"
+            aria-label="Filter branches and submodules"
             className="min-w-0 flex-1 border-0 bg-transparent text-foreground outline-0 placeholder:text-muted"
             onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter branches"
+            placeholder="Filter branches, submodules"
             value={filter}
           />
         </div>
@@ -278,6 +281,13 @@ export function RefSidebar({
           </RefRow>
         ))}
       </RefSection>
+      <SubmoduleSection
+        {...submoduleProps}
+        key={submoduleProps.submodulesRepositoryId}
+        filter={needle}
+        onToggle={() => onToggleSection("submodules")}
+        open={sections.submodules}
+      />
     </SidePanel>
   );
 }

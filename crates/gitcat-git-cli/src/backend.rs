@@ -529,7 +529,7 @@ impl GitCliBackend {
         })
     }
 
-    async fn head_oid(&self, path: &Path) -> ApiResult<Option<String>> {
+    pub(crate) async fn head_oid(&self, path: &Path) -> ApiResult<Option<String>> {
         let output = self
             .read_allow_failure(
                 Some(path),
@@ -814,7 +814,7 @@ impl GitCliBackend {
 
     /// Checks the selection and hands back the remotes it was checked against,
     /// so a caller that also needs their URLs does not ask Git twice.
-    async fn validate_remote_selection(
+    pub(crate) async fn validate_remote_selection(
         &self,
         path: &Path,
         remote: Option<&str>,
@@ -846,7 +846,7 @@ impl GitCliBackend {
     /// them for the whole command, and a token for one host is no use to
     /// another. A fetch never lands here with more than one host, because it
     /// runs one command per remote.
-    async fn network_options(
+    pub(crate) async fn network_options(
         &self,
         remotes: &[RemoteInfo],
         remote: Option<&str>,
@@ -893,7 +893,7 @@ impl GitCliBackend {
 
     /// Options for a clone, whose host comes from the URL rather than from a
     /// configured remote.
-    async fn clone_options(&self, url: &str) -> GitRunOptions {
+    pub(crate) async fn clone_options(&self, url: &str) -> GitRunOptions {
         let mut options = GitRunOptions::network(NETWORK_OUTPUT_CAP);
         let Some(source) = self.credentials.as_ref() else {
             return options;
@@ -912,7 +912,7 @@ impl GitCliBackend {
         options
     }
 
-    async fn mutation_result(
+    pub(crate) async fn mutation_result(
         &self,
         path: &Path,
         before_oid: Option<String>,
@@ -1110,7 +1110,11 @@ impl GitCliBackend {
     }
 
     /// The commit a ref points at, or `None` when the ref does not resolve.
-    async fn rev_parse_commit(&self, path: &Path, reference: &str) -> ApiResult<Option<String>> {
+    pub(crate) async fn rev_parse_commit(
+        &self,
+        path: &Path,
+        reference: &str,
+    ) -> ApiResult<Option<String>> {
         let output = self
             .read_allow_failure(
                 Some(path),
@@ -1141,7 +1145,7 @@ impl GitCliBackend {
     /// command runs again with it. One retry, and only when the token actually
     /// changed, so a service that keeps refusing is reported rather than asked
     /// twice.
-    async fn mutate_network(
+    pub(crate) async fn mutate_network(
         &self,
         path: &Path,
         args: Vec<OsString>,
@@ -1409,6 +1413,51 @@ impl GitCliBackend {
 
 #[async_trait]
 impl GitBackend for GitCliBackend {
+    async fn list_submodules(&self, path: &Path) -> ApiResult<Vec<SubmoduleInfo>> {
+        self.submodules(path).await
+    }
+
+    async fn add_submodule(
+        &self,
+        path: &Path,
+        url: &str,
+        relative: &str,
+    ) -> ApiResult<MutationResult> {
+        self.add_submodule_inner(path, url, relative).await
+    }
+
+    async fn set_submodule_url(
+        &self,
+        path: &Path,
+        relative: &str,
+        url: &str,
+    ) -> ApiResult<MutationResult> {
+        self.set_submodule_url_inner(path, relative, url).await
+    }
+
+    async fn update_submodule(&self, path: &Path, relative: &str) -> ApiResult<MutationResult> {
+        self.sync_submodule_inner(path, relative, SubmoduleSyncAction::Pull)
+            .await
+    }
+
+    async fn remove_submodule(
+        &self,
+        path: &Path,
+        relative: &str,
+        confirmed: bool,
+    ) -> ApiResult<MutationResult> {
+        self.remove_submodule_inner(path, relative, confirmed).await
+    }
+
+    async fn sync_submodule(
+        &self,
+        path: &Path,
+        relative: &str,
+        action: SubmoduleSyncAction,
+    ) -> ApiResult<MutationResult> {
+        self.sync_submodule_inner(path, relative, action).await
+    }
+
     async fn probe(&self) -> ApiResult<GitVersion> {
         let output = self.read(None, os_args(&["version"])).await?;
         let (major, minor, patch, raw) = parse_git_version(&output.stdout)?;
@@ -2889,6 +2938,9 @@ impl GitBackend for GitCliBackend {
             ));
         }
         let mut args = download_args("pull");
+        if options.skip_submodules {
+            args.push("--no-recurse-submodules".into());
+        }
         match options.mode {
             PullMode::Merge => {
                 args.push("--no-rebase".into());
@@ -2957,6 +3009,9 @@ impl GitBackend for GitCliBackend {
             return Ok(result);
         }
         let mut args = os_args(&["push", "--porcelain", "--progress"]);
+        if options.skip_submodules {
+            args.push("--no-recurse-submodules".into());
+        }
         match options.force {
             PushForce::None => {}
             // `--force-if-includes` is what makes the lease mean what the user
@@ -3458,7 +3513,7 @@ fn renewal_candidate<'a>(
 /// ref another tool parked under its own prefix -- a Codex checkpoint whose
 /// object was pruned -- fails the whole command with "bad object". Hiding a ref
 /// only makes the check walk further; it never skips an object Git needs.
-fn download_args(subcommand: &str) -> Vec<OsString> {
+pub(crate) fn download_args(subcommand: &str) -> Vec<OsString> {
     os_args(&[
         "-c",
         "fetch.hideRefs=refs/",

@@ -697,6 +697,32 @@ pub struct MutationResult {
     pub notice: Option<String>,
 }
 
+/// One direct submodule. `recorded_oid` is the gitlink in the parent's index;
+/// updating the checkout never stages that pointer automatically.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubmoduleInfo {
+    pub name: String,
+    pub path: String,
+    pub url: String,
+    pub absolute_path: String,
+    pub initialized: bool,
+    pub head_oid: Option<String>,
+    pub recorded_oid: Option<String>,
+    pub head_summary: Option<String>,
+    pub head_committed_at: Option<i64>,
+    pub branch: Option<String>,
+    pub dirty: bool,
+    pub conflicted: bool,
+    pub head_matches_recorded: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmoduleSyncAction {
+    Pull,
+    Push,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloneOptions {
     pub url: String,
@@ -725,6 +751,10 @@ pub struct PullOptions {
     pub mode: PullMode,
     pub prune: bool,
     pub autostash: bool,
+    /// Limit an explicitly scoped batch to this repository, even when the
+    /// user's Git configuration enables recursive submodule operations.
+    #[serde(default)]
+    pub skip_submodules: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -734,6 +764,8 @@ pub struct PushOptions {
     pub set_upstream: bool,
     #[serde(default)]
     pub force: PushForce,
+    #[serde(default)]
+    pub skip_submodules: bool,
 }
 
 /// How far a push may go in overwriting what the remote already has.

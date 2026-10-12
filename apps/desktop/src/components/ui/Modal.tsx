@@ -51,7 +51,7 @@ export function Modal({
         aria-labelledby="gc-modal-title"
         aria-modal="true"
         className={cx(
-          "flex max-h-[min(760px,calc(100vh-48px))] flex-col rounded-[9px] border border-[color-mix(in_srgb,var(--gc-border)_85%,white_5%)] bg-menu shadow-panel",
+          "flex min-h-0 max-h-[min(760px,100%)] flex-col rounded-[9px] border border-[color-mix(in_srgb,var(--gc-border)_85%,white_5%)] bg-menu shadow-panel",
           WIDTH[width],
         )}
         onMouseDown={(event) => event.stopPropagation()}

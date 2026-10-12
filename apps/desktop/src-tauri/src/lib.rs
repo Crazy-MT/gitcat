@@ -14,7 +14,8 @@ use gitcat_contracts::{
     ForgeAccount, ForgeCredential, ForgeRepo, ForgeRepository, GitVersion, HistoryPage,
     HistoryQuery, LinePatchRequest, LoginPoll, MAX_UI_ZOOM_PERCENT, MIN_UI_ZOOM_PERCENT,
     MutationResult, NewRepository, PersistedState, PullOptions, PullRequestInfo, PushOptions,
-    RepositoryId, RepositoryInfo, RepositorySnapshot, ResetMode, StashEntry,
+    RepositoryId, RepositoryInfo, RepositorySnapshot, ResetMode, StashEntry, SubmoduleInfo,
+    SubmoduleSyncAction,
 };
 use gitcat_core::{CoreApi, JsonStateStore, export_settings, import_settings};
 use gitcat_forge::{AvatarService, ForgeAuth, ForgeService, TokenStore};
@@ -155,8 +156,8 @@ async fn repository_watch(
     app: AppHandle,
     repository_id: RepositoryId,
 ) -> ApiResult<()> {
-    let root = core.repository_root(&repository_id).await?;
-    watchers.watch(app, repository_id, root).map_err(|error| {
+    let paths = core.repository_watch_paths(&repository_id).await?;
+    watchers.watch(app, repository_id, paths).map_err(|error| {
         ApiError::new(ErrorCode::Internal, "could not start repository watcher")
             .with_details(error.to_string())
     })
@@ -506,6 +507,64 @@ async fn remote_add(
     url: String,
 ) -> ApiResult<MutationResult> {
     core.add_remote(&repository_id, &name, &url).await
+}
+
+#[tauri::command]
+async fn list_submodules(
+    core: State<'_, Arc<CoreApi>>,
+    repository_id: RepositoryId,
+) -> ApiResult<Vec<SubmoduleInfo>> {
+    core.list_submodules(&repository_id).await
+}
+
+#[tauri::command]
+async fn add_submodule(
+    core: State<'_, Arc<CoreApi>>,
+    repository_id: RepositoryId,
+    url: String,
+    path: String,
+) -> ApiResult<MutationResult> {
+    core.add_submodule(&repository_id, &url, &path).await
+}
+
+#[tauri::command]
+async fn set_submodule_url(
+    core: State<'_, Arc<CoreApi>>,
+    repository_id: RepositoryId,
+    path: String,
+    url: String,
+) -> ApiResult<MutationResult> {
+    core.set_submodule_url(&repository_id, &path, &url).await
+}
+
+#[tauri::command]
+async fn update_submodule(
+    core: State<'_, Arc<CoreApi>>,
+    repository_id: RepositoryId,
+    path: String,
+) -> ApiResult<MutationResult> {
+    core.update_submodule(&repository_id, &path).await
+}
+
+#[tauri::command]
+async fn remove_submodule(
+    core: State<'_, Arc<CoreApi>>,
+    repository_id: RepositoryId,
+    path: String,
+    confirmed: bool,
+) -> ApiResult<MutationResult> {
+    core.remove_submodule(&repository_id, &path, confirmed)
+        .await
+}
+
+#[tauri::command]
+async fn sync_submodule(
+    core: State<'_, Arc<CoreApi>>,
+    repository_id: RepositoryId,
+    path: String,
+    action: SubmoduleSyncAction,
+) -> ApiResult<MutationResult> {
+    core.sync_submodule(&repository_id, &path, action).await
 }
 
 #[tauri::command]
@@ -957,6 +1016,12 @@ pub fn run() {
             branch_set_upstream,
             branch_merge,
             remote_add,
+            list_submodules,
+            add_submodule,
+            set_submodule_url,
+            update_submodule,
+            remove_submodule,
+            sync_submodule,
             remote_fetch,
             remote_pull,
             remote_push,

@@ -27,7 +27,7 @@ export function RefSection({
       <header className="flex h-9.25 items-center pl-0.75 pr-1">
         <button
           aria-expanded={open}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.75 bg-transparent px-1.25 text-[11px] font-[750] tracking-[0.07em] text-muted hover:text-foreground"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.75 rounded bg-transparent px-1.25 text-[11px] font-[750] tracking-[0.07em] text-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70"
           onClick={onToggle}
           type="button"
         >

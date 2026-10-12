@@ -6,6 +6,7 @@ mod line_patch;
 mod operation;
 mod parse;
 mod runner;
+mod submodule;
 mod validate;
 
 pub use backend::GitCliBackend;

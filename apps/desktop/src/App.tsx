@@ -17,6 +17,7 @@ import {
     type TabView,
 } from "./components/top-tabs";
 import { UnavailableRepositoryView } from "./components/UnavailableRepositoryView";
+import { SubmoduleDialog, SubmoduleDeleteDialog, SubmoduleBatchDialog } from "./components/submodules";
 import { WelcomeView } from "./components/WelcomeView";
 import { buildCommitMessage, type CommitDraft } from "./components/worktree";
 import type { DiffViewMode } from "./components/diff";
@@ -68,6 +69,7 @@ import { usePanelLayout } from "./app/usePanelLayout";
 import { useRepositoryCommands } from "./app/useRepositoryCommands";
 import { useRepositoryOverview } from "./app/useRepositoryOverview";
 import { useRepositoryTabs } from "./app/useRepositoryTabs";
+import { useSubmodules } from "./app/useSubmodules";
 import { useForgeLocations } from "./app/useForgeLocations";
 import { useInterfaceZoom } from "./app/useInterfaceZoom";
 import { useToasts } from "./app/useToasts";
@@ -396,6 +398,14 @@ function App() {
 
     useLaunchRepository({ initializing, openRepositoryPath });
 
+    const submodules = useSubmodules({
+        repository: activeRepository,
+        snapshot: rawSnapshot,
+        busy,
+        runMutation,
+        openRepositoryPath,
+    });
+
     const {
         focusWorktree,
         jumpToCommit,
@@ -596,7 +606,7 @@ function App() {
         setRightPanelVisible,
         setSettingsOpen,
         setTabMenu,
-        settingsOpen: settingsOpen || gitHubAccessOpen,
+        settingsOpen: settingsOpen || gitHubAccessOpen || submodules.dialog !== null,
         showError,
         snapshot,
         stagePaths,
@@ -947,6 +957,18 @@ function App() {
                                 remoteBranches={snapshot?.remote_branches ?? []}
                                 remoteIconUrls={iconUrlsByRemote}
                                 tags={snapshot?.tags ?? []}
+                                submodules={submodules.modules}
+                                submodulesRepositoryId={activeRepository?.repository_id}
+                                submodulesLoading={submodules.loading}
+                                submodulesError={submodules.error}
+                                submodulesBusy={busy || submodules.working}
+                                onAddSubmodule={submodules.add}
+                                onEditSubmodule={submodules.edit}
+                                onUpdateSubmodule={submodules.update}
+                                onOpenSubmodule={submodules.open}
+                                onDeleteSubmodule={submodules.requestDelete}
+                                onManageSubmodules={submodules.manage}
+                                onRetrySubmodules={() => void submodules.refresh()}
                                 toggleKeybind={persisted.settings.keybinds.toggle_left_panel}
                             />
                         </div>
@@ -1073,6 +1095,43 @@ function App() {
                 zoomPercent={zoomPercent}
             />
 
+            {submodules.dialog?.kind === "add" || submodules.dialog?.kind === "edit" ? (
+                <SubmoduleDialog
+                    key={`${submodules.dialog.kind}:${submodules.selected?.path ?? "new"}`}
+                    submodule={submodules.selected}
+                    repositoryName={activeRepository?.info.name ?? "Repository"}
+                    busy={busy || submodules.working}
+                    error={submodules.dialogError}
+                    onSubmit={submodules.submit}
+                    onClose={submodules.closeDialog}
+                    onOpen={submodules.open}
+                    onUpdate={submodules.update}
+                    onDelete={submodules.requestDelete}
+                />
+            ) : null}
+            {submodules.dialog?.kind === "delete" && submodules.selected ? (
+                <SubmoduleDeleteDialog
+                    submodule={submodules.selected}
+                    busy={busy || submodules.working}
+                    error={submodules.dialogError}
+                    onConfirm={submodules.remove}
+                    onClose={submodules.closeDialog}
+                />
+            ) : null}
+            {submodules.dialog?.kind === "batch" ? (
+                <SubmoduleBatchDialog
+                    submodules={submodules.modules}
+                    repositoryName={activeRepository?.info.name ?? "Repository"}
+                    action={submodules.batchAction}
+                    results={submodules.batchResults}
+                    running={submodules.batchRunning}
+                    busy={busy || submodules.working}
+                    error={submodules.dialogError}
+                    onRun={(action, includeParent) => void submodules.runBatch(action, includeParent)}
+                    onOpen={submodules.batchRunning ? undefined : submodules.open}
+                    onClose={submodules.closeDialog}
+                />
+            ) : null}
             <AppDialogs
                 activeTab={activeTab}
                 branchContextActions={branchContextActions}

@@ -2259,6 +2259,7 @@ async fn rejects_custom_remote_helpers_and_ambiguous_push_selection() {
         .push(
             directory.path(),
             &PushOptions {
+                skip_submodules: false,
                 remote: None,
                 branch: Some("main".into()),
                 set_upstream: false,
@@ -2458,6 +2459,7 @@ async fn fetch_and_pull_ignore_foreign_refs_to_pruned_objects() {
         .pull(
             directory.path(),
             &PullOptions {
+                skip_submodules: false,
                 remote: None,
                 branch: None,
                 mode: PullMode::FastForwardOnly,
@@ -2486,6 +2488,7 @@ async fn local_remote_fetch_pull_and_push_use_explicit_modes() {
         .push(
             directory.path(),
             &PushOptions {
+                skip_submodules: false,
                 remote: Some("origin".into()),
                 branch: Some("main".into()),
                 set_upstream: true,
@@ -2511,6 +2514,7 @@ async fn local_remote_fetch_pull_and_push_use_explicit_modes() {
         .pull(
             directory.path(),
             &PullOptions {
+                skip_submodules: false,
                 remote: Some("origin".into()),
                 branch: Some("main".into()),
                 mode: PullMode::Rebase,
@@ -2581,6 +2585,7 @@ async fn local_remote_fetch_pull_and_push_use_explicit_modes() {
         .pull(
             directory.path(),
             &PullOptions {
+                skip_submodules: false,
                 remote: Some("origin".into()),
                 branch: Some("main".into()),
                 mode: PullMode::Merge,

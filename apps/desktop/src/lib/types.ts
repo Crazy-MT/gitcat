@@ -32,6 +32,25 @@ export interface OpenedRepository {
   info: RepositoryInfo;
 }
 
+/** Direct submodules of a repository. Commit times are Unix seconds. */
+export interface SubmoduleInfo {
+  name: string;
+  path: string;
+  url: string;
+  absolute_path: string;
+  initialized: boolean;
+  head_oid: string | null;
+  recorded_oid: string | null;
+  head_summary: string | null;
+  head_committed_at: number | null;
+  branch: string | null;
+  dirty: boolean;
+  conflicted: boolean;
+  head_matches_recorded: boolean;
+}
+
+export type SubmoduleSyncAction = "pull" | "push";
+
 export type HeadState =
   | { kind: "branch"; name: string; oid: string }
   | { kind: "detached"; oid: string }
@@ -507,6 +526,8 @@ export interface PullOptions {
   mode: PullMode;
   prune: boolean;
   autostash: boolean;
+  /** Bulk sync explicitly limits commands to the repositories it lists. */
+  skip_submodules?: boolean;
 }
 
 /** How far a push may go in overwriting what the remote already has. */
@@ -518,6 +539,8 @@ export interface PushOptions {
   set_upstream: boolean;
   /** Omitted is `"none"`: a push is fast-forward only unless it says otherwise. */
   force?: PushForce;
+  /** Ignore recursive Git config when a bulk operation manages children itself. */
+  skip_submodules?: boolean;
 }
 
 export interface FetchOptions {

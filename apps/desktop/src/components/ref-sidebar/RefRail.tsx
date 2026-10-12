@@ -1,4 +1,4 @@
-import { Cloud, Monitor, PanelLeftOpen, Tag } from "lucide-react";
+import { Cloud, Layers, Monitor, PanelLeftOpen, Tag } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { IconButton } from "../ui";
@@ -11,13 +11,14 @@ interface RefRailProps {
   localCount: number;
   remoteCount: number;
   tagCount: number;
+  submoduleCount: number;
   expandKeybind: string;
   onExpand: (section?: RefSectionKey) => void;
 }
 
 // Collapsed stand-in for the reference sidebar: one icon per section with its
 // count, plus the expand button the toolbar used to carry.
-export function RefRail({ localCount, remoteCount, tagCount, expandKeybind, onExpand }: RefRailProps) {
+export function RefRail({ localCount, remoteCount, tagCount, submoduleCount, expandKeybind, onExpand }: RefRailProps) {
   return (
     <aside
       aria-label="References"
@@ -45,6 +46,7 @@ export function RefRail({ localCount, remoteCount, tagCount, expandKeybind, onEx
         onClick={() => onExpand("remote")}
       />
       <RailSection count={tagCount} icon={<Tag size={15} />} label="Tags" onClick={() => onExpand("tags")} />
+      <RailSection count={submoduleCount} icon={<Layers size={15} />} label="Submodules" onClick={() => onExpand("submodules")} />
     </aside>
   );
 }
@@ -58,7 +60,7 @@ function RailSection({ count, icon, label, onClick }: {
   return (
     <button
       aria-label={`${label} (${count})`}
-      className="flex w-8 cursor-pointer flex-col items-center gap-px rounded-[5px] border border-transparent bg-transparent px-0 py-1 text-muted hover:border-border/75 hover:bg-foreground/7 hover:text-foreground"
+      className="flex w-8 cursor-pointer flex-col items-center gap-px rounded-[5px] border border-transparent bg-transparent px-0 py-1 text-muted hover:border-border/75 hover:bg-foreground/7 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70"
       onClick={onClick}
       title={`${label} (${count})`}
       type="button"

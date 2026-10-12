@@ -408,3 +408,16 @@ The missing GitCat provider avatar may therefore be caused by the lack of GitHub
 - Toolbar primary actions remain at viewport center while side panels change.
 - Every displayed shortcut comes from current settings, and duplicate bindings are rejected or explicitly scoped.
 - Footer version/build identity is present in packaged builds without requiring a `.git` directory.
+
+## Submodules (2026-10-12)
+
+Official [GitKraken submodule documentation](https://help.gitkraken.com/gitkraken-desktop/submodules/) and the supplied captures show a left-panel section, an add button with URL/path fields, and Update, Edit, Open, and Delete context actions. The revision view compares the child checkout with the parent reference. GitCat follows that structure, with these deliberate additions:
+
+- Open activates a separate repository tab and preserves the parent.
+- Two-line sidebar rows expose current SHA and commit age; details show the commit message, exact date, and parent index revision.
+- A shared repository panel places Pull all and Push all beside an explicit optional parent scope, with per-repository progress and recovery messages.
+- Compact existing theme tokens, typography, and controls stay consistent with the rest of GitCat. Status uses text and icons alongside color; keyboard menus and modal focus are supported.
+
+Git semantics were checked against [git-submodule](https://git-scm.com/docs/git-submodule), [git-rm](https://git-scm.com/docs/git-rm), and [gitsubmodules](https://git-scm.com/docs/gitsubmodules). Initialization checks out the recorded revision. Later updates advance safely toward the remote; changed pointers remain for the user to review and commit. Detached pushes require a branch, and removal retains the Git object database while refusing local or ignored files.
+
+Batch scope is the direct submodules of the current repository. Pulling the optional parent happens first and refreshes membership; pushing it happens last only after successful children. Unrelated open tabs are outside this scope.

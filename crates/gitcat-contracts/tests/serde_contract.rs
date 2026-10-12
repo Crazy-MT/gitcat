@@ -19,6 +19,19 @@ fn pull_mode_is_stable_snake_case() {
 }
 
 #[test]
+fn legacy_remote_options_preserve_recursive_configuration_by_default() {
+    let pull: gitcat_contracts::PullOptions = serde_json::from_value(serde_json::json!({
+        "remote": null, "branch": null, "mode": "fast_forward_only", "prune": true, "autostash": false
+    })).unwrap();
+    let push: gitcat_contracts::PushOptions = serde_json::from_value(serde_json::json!({
+        "remote": null, "branch": null, "set_upstream": false
+    }))
+    .unwrap();
+    assert!(!pull.skip_submodules);
+    assert!(!push.skip_submodules);
+}
+
+#[test]
 fn tagged_contracts_have_explicit_kinds() {
     let target = DiffTarget::Commit {
         oid: "abc123".into(),

@@ -33,6 +33,9 @@ const MAX_DIFF_BYTES: usize = 128 * 1024 * 1024;
 pub struct CoreApi {
     backend: Arc<dyn GitBackend>,
     repositories: RwLock<HashMap<RepositoryId, RepositoryEntry>>,
+    // Submodule operations take a shared guard so a new child tab cannot join
+    // halfway through an operation and escape its parent/child mutation locks.
+    registration_gate: RwLock<()>,
 }
 
 impl CoreApi {
@@ -40,6 +43,7 @@ impl CoreApi {
         Self {
             backend,
             repositories: RwLock::new(HashMap::new()),
+            registration_gate: RwLock::new(()),
         }
     }
 
@@ -118,6 +122,73 @@ impl CoreApi {
     pub async fn snapshot(&self, repository_id: &RepositoryId) -> ApiResult<RepositorySnapshot> {
         let path = self.repository_path(repository_id).await?;
         self.backend.snapshot(&path).await
+    }
+
+    pub async fn list_submodules(
+        &self,
+        repository_id: &RepositoryId,
+    ) -> ApiResult<Vec<SubmoduleInfo>> {
+        let path = self.repository_path(repository_id).await?;
+        self.backend.list_submodules(&path).await
+    }
+
+    pub async fn add_submodule(
+        &self,
+        repository_id: &RepositoryId,
+        url: &str,
+        path: &str,
+    ) -> ApiResult<MutationResult> {
+        self.mutate_submodules(repository_id, |backend, root| async move {
+            backend.add_submodule(&root, url, path).await
+        })
+        .await
+    }
+
+    pub async fn set_submodule_url(
+        &self,
+        repository_id: &RepositoryId,
+        path: &str,
+        url: &str,
+    ) -> ApiResult<MutationResult> {
+        self.mutate_submodules(repository_id, |backend, root| async move {
+            backend.set_submodule_url(&root, path, url).await
+        })
+        .await
+    }
+
+    pub async fn update_submodule(
+        &self,
+        repository_id: &RepositoryId,
+        path: &str,
+    ) -> ApiResult<MutationResult> {
+        self.mutate_submodules(repository_id, |backend, root| async move {
+            backend.update_submodule(&root, path).await
+        })
+        .await
+    }
+
+    pub async fn remove_submodule(
+        &self,
+        repository_id: &RepositoryId,
+        path: &str,
+        confirmed: bool,
+    ) -> ApiResult<MutationResult> {
+        self.mutate_submodules(repository_id, |backend, root| async move {
+            backend.remove_submodule(&root, path, confirmed).await
+        })
+        .await
+    }
+
+    pub async fn sync_submodule(
+        &self,
+        repository_id: &RepositoryId,
+        path: &str,
+        action: SubmoduleSyncAction,
+    ) -> ApiResult<MutationResult> {
+        self.mutate_submodules(repository_id, |backend, root| async move {
+            backend.sync_submodule(&root, path, action).await
+        })
+        .await
     }
 
     pub async fn history(
@@ -678,6 +749,7 @@ impl CoreApi {
     }
 
     async fn register(&self, info: RepositoryInfo) -> ApiResult<(RepositoryId, RepositoryInfo)> {
+        let _registration_guard = self.registration_gate.write().await;
         let canonical_path = canonical_repository_root(&info)?;
         let common_dir = canonical_common_dir(&info, &canonical_path)?;
         let mut repositories = self.repositories.write().await;
@@ -743,6 +815,32 @@ impl CoreApi {
         self.repository_path(repository_id).await
     }
 
+    /// Include external metadata directories used by submodules and worktrees.
+    pub async fn repository_watch_paths(
+        &self,
+        repository_id: &RepositoryId,
+    ) -> ApiResult<Vec<PathBuf>> {
+        let root = self.repository_path(repository_id).await?;
+        let info = self.backend.open_repository(&root).await?;
+        let mut paths = vec![root.clone()];
+        for directory in [&info.git_dir, &info.common_dir] {
+            let path = PathBuf::from(directory);
+            let path = if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            };
+            let path = dunce::canonicalize(&path).map_err(|error| {
+                ApiError::new(ErrorCode::Io, "Git metadata directory is unavailable")
+                    .with_details(error.to_string())
+            })?;
+            if !paths.iter().any(|watched| path.starts_with(watched)) {
+                paths.push(path);
+            }
+        }
+        Ok(paths)
+    }
+
     async fn mutate<T, F, Fut>(&self, repository_id: &RepositoryId, operation: F) -> ApiResult<T>
     where
         F: FnOnce(Arc<dyn GitBackend>, PathBuf) -> Fut,
@@ -768,6 +866,54 @@ impl CoreApi {
         }
 
         operation(self.backend.clone(), entry.path).await
+    }
+
+    /// Submodule operations also mutate child repositories. Lock any open child
+    /// tabs (and their linked worktrees) in stable ancestor-first order.
+    async fn mutate_submodules<T, F, Fut>(
+        &self,
+        repository_id: &RepositoryId,
+        operation: F,
+    ) -> ApiResult<T>
+    where
+        F: FnOnce(Arc<dyn GitBackend>, PathBuf) -> Fut,
+        Fut: Future<Output = ApiResult<T>>,
+    {
+        let _registration_guard = self.registration_gate.read().await;
+        let parent_entry = self.repository_entry(repository_id).await?;
+        let parent_lock = parent_entry.mutation_lock;
+        let modules_dir = parent_entry.common_dir.join("modules");
+        self.mutate(repository_id, |backend, root| async move {
+            let mut descendants: Vec<_> = self
+                .repositories
+                .read()
+                .await
+                .values()
+                .filter(|entry| {
+                    entry.path != root
+                        && (entry.path.starts_with(&root)
+                            || entry.common_dir.starts_with(&modules_dir))
+                        && !Arc::ptr_eq(&entry.mutation_lock, &parent_lock)
+                })
+                // Linked worktrees can sit anywhere on disk. Their common Git
+                // directories preserve module ancestry, so a parent always
+                // locks a child before a grandchild, just as the child does.
+                .map(|entry| (entry.common_dir.clone(), entry.mutation_lock.clone()))
+                .collect();
+            descendants.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut locks: Vec<Arc<Mutex<()>>> = Vec::new();
+            for (_, lock) in descendants {
+                if !locks.iter().any(|existing| Arc::ptr_eq(existing, &lock)) {
+                    locks.push(lock);
+                }
+            }
+            let mut guards = Vec::new();
+            for lock in locks {
+                guards.push(lock.lock_owned().await);
+            }
+            operation(backend, root).await
+        })
+        .await
     }
 
     async fn mutate_expected<T, F, Fut>(
@@ -1120,6 +1266,11 @@ mod tests {
 
         async fn stage_paths(&self, path: &Path, _paths: &[String]) -> ApiResult<MutationResult> {
             self.mutation("stage_paths", path).await
+        }
+
+        async fn update_submodule(&self, path: &Path, relative: &str) -> ApiResult<MutationResult> {
+            self.mutation("update_submodule", &path.join(relative))
+                .await
         }
 
         async fn unstage_paths(&self, path: &Path, _paths: &[String]) -> ApiResult<MutationResult> {
@@ -1555,6 +1706,67 @@ mod tests {
         first_result.expect("first repository stage");
         second_result.expect("second repository stage");
         assert_eq!(backend.max_active_mutations.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn submodule_mutation_serializes_with_the_child_tab() {
+        let temp = TempDir::new().expect("parent repository");
+        let child = temp.path().join("child");
+        std::fs::create_dir(&child).unwrap();
+        let backend = Arc::new(MockBackend::default());
+        let api = CoreApi::new(backend.clone());
+        let (parent_id, _) = api.open(temp.path()).await.unwrap();
+        let (child_id, _) = api.open(&child).await.unwrap();
+        let paths = vec!["file.txt".to_owned()];
+        let (update, stage) = tokio::join!(
+            api.update_submodule(&parent_id, "child"),
+            api.stage(&child_id, &paths),
+        );
+        update.unwrap();
+        stage.unwrap();
+        assert_eq!(backend.max_active_mutations.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn linked_worktree_submodule_locks_follow_common_directory_ancestry() {
+        let temp = TempDir::new().unwrap();
+        let parent = temp.path().join("parent");
+        let child = temp.path().join("zzz-linked-child");
+        let nested = parent.join("A/B");
+        let child_common = parent.join(".git/modules/A");
+        let nested_common = child_common.join("modules/B");
+        std::fs::create_dir_all(&nested_common).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir_all(&child).unwrap();
+        let api = Arc::new(CoreApi::new(Arc::new(MockBackend::default())));
+        let (parent_id, _) = api.register(repository_info(&parent)).await.unwrap();
+        let mut child_info = repository_info(&child);
+        child_info.common_dir = child_common.to_string_lossy().into_owned();
+        let (child_id, _) = api.register(child_info).await.unwrap();
+        let mut nested_info = repository_info(&nested);
+        nested_info.common_dir = nested_common.to_string_lossy().into_owned();
+        let (nested_id, _) = api.register(nested_info).await.unwrap();
+        let nested_lock = api
+            .repository_entry(&nested_id)
+            .await
+            .unwrap()
+            .mutation_lock;
+        let nested_guard = nested_lock.lock().await;
+        let parent_api = api.clone();
+        let parent_task =
+            tokio::spawn(async move { parent_api.update_submodule(&parent_id, "A").await });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let child_api = api.clone();
+        let child_task =
+            tokio::spawn(async move { child_api.update_submodule(&child_id, "B").await });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        drop(nested_guard);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            parent_task.await.unwrap().unwrap();
+            child_task.await.unwrap().unwrap();
+        })
+        .await
+        .expect("ancestor and nested operations must not deadlock through linked worktrees");
     }
 
     #[tokio::test]
