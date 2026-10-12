@@ -24,7 +24,7 @@ use crate::token::{OAuthCredential, StoredCredential, TokenStore};
 
 /// GitCat's registered OAuth application. A client ID is public by design: the
 /// device flow proves nothing with it, the user's own authorisation does.
-pub const GITHUB_CLIENT_ID: &str = "Ov23liXsrhyLXSlqd0bE";
+pub const GITHUB_CLIENT_ID: &str = "Ov23li6Vo6Ss6J2WnTaj";
 
 /// `repo` reaches private repositories and is what a clone or a push needs;
 /// `read:org` lists the repositories an organisation shares with the user;
