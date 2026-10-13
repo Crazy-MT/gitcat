@@ -12,7 +12,7 @@ resolver = "2"
 version = "1.12.0"
 edition = "2024"
 rust-version = "1.85"
-license = "MIT"
+license = "MPL-2.0"
 authors = ["GitCat contributors"]
 
 [workspace.dependencies]

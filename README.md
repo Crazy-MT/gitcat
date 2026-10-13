@@ -4,6 +4,8 @@ Lightweight, Windows-first desktop Git client with Linux builds. Tauri v2 + Reac
 
 > **Status:** functional MVP. `tauri dev` works with real repositories; the standalone Vite development page uses a built-in demo data source.
 
+[Privacy notice](PRIVACY.md) · [Code signing policy](CODE_SIGNING.md) · [License](LICENSE)
+
 ## Screenshots
 
 <p align="center">
@@ -36,7 +38,7 @@ Lightweight, Windows-first desktop Git client with Linux builds. Tauri v2 + Reac
 
 ## Key features
 
-- Start page when no repository is open: searchable recent repositories with per-entry removal, plus Open, Clone, and Create actions. Create supports a target path, default branch name, and a `.gitignore` template; hosted providers are listed but not yet available.
+- Start page when no repository is open: searchable recent repositories with per-entry removal, plus Open, Clone, and Create actions. Create supports a target path, default branch name, and a `.gitignore` template. Connected GitHub.com and GitHub Enterprise accounts support hosted repository browsing, cloning, and creation.
 - Repository tabs in a single row: app-owned context actions, aliases, browser-style switching, a searchable overview of every open tab, automatic restoration, and reopening the most recently closed tab.
 - Tabs whose folder moved or is no longer a Git repository open a dedicated unavailable-repository page with retry, locate, and close actions instead of failing silently.
 - LOCAL, REMOTE, and TAGS sidebar with filtering, a current-branch marker, `/`-segment folders for local branches, remote-grouped remote branches with owner avatars, and a right-click branch menu for pull, push, branch creation, rename, safe deletion, and name copy.
@@ -236,8 +238,8 @@ Triggers:
 - Conflict-editor writes reject stale index stages or externally changed worktree content, preserve line endings, and atomically replace files before staging.
 - External diff tools and textconv are disabled for read-only diffs.
 - Allowed remote protocols: `file`, `git`, `http`, `https`, `ssh`; custom remote helpers are disabled.
-- Credential prompts are disabled. A preconfigured Git Credential Manager or SSH agent is required.
-- Auto-fetch is the only unattended network operation, it only ever runs `git fetch` on the active repository, and it is turned off by setting the interval to `0`.
+- Git's interactive credential prompts are disabled. HTTPS operations can use a hosting-service credential connected in GitCat; otherwise Git uses your configured credential helpers or SSH agent.
+- Auto-fetch runs `git fetch` on the active repository and can be disabled by setting its interval to `0`. Update checks, repository-location lookups, enabled author pictures, pull-request/check decorations, and remote-owner pictures can also make background network requests; see the [privacy notice](PRIVACY.md) for controls and destinations.
 - `reset --hard`, discarding changes, forced branch deletion, and stash drop require explicit confirmation plus a current matching snapshot. The core rejects stale dialogs. Destructive branch deletion is confirmed inline in the top bar instead of a modal.
 - Discarding a file that another process holds open fails with an explicit "file is in use" message instead of a generic Git error.
 - Rewording a commit is guarded by the same snapshot check, so it is rejected if the branch moved underneath the panel.
@@ -247,12 +249,16 @@ Triggers:
 
 ## MVP limitations
 
-- Clone and create are local-only: hosted providers (GitHub, GitLab, Bitbucket, Azure DevOps) are shown in the create dialog but disabled.
+- Hosted repository browsing and creation support GitHub.com and GitHub Enterprise. Other listed providers currently offer links only; their hosted clone/create integration is disabled. Cloning a remote URL through system Git remains available.
 - A remote/upstream editor and annotated-tag message UI are not yet available; the core/IPC already partially supports them.
 - Stashing is limited to push and popping the latest entry from the toolbar. Applying or dropping an arbitrary stash has core/IPC support but no panel.
 - Network operations have no progress or cancel UI; the Tauri adapter currently creates its own cancellation token for each call.
 - Diffs are line-level: syntax highlighting is available, word-level diffs are not.
 - There is no built-in credential dialog or terminal.
-- Hosted provider profile pictures are not fetched without provider authentication; initials are used as the avatar fallback.
+- Author pictures can be fetched from GitHub without signing in for public repositories and GitHub alias addresses. Gravatar fallback is opt-in; unresolved authors use initials. See the [privacy notice](PRIVACY.md).
 
 Detailed contracts: [Core API](docs/CORE_API.md), [Tauri integration](docs/TAURI_INTEGRATION.md), [GitKraken UX research](docs/GITKRAKEN_UX_RESEARCH.md), and [UX implementation notes](docs/UX_IMPLEMENTATION.md).
+
+## License
+
+GitCat's own source code is licensed under the [Mozilla Public License 2.0](LICENSE), matching the Rust workspace and desktop package metadata. Third-party dependencies and vendored files retain their respective licenses and notices.
